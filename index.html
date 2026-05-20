@@ -113,6 +113,12 @@ mark.highlight { background: rgba(239,68,68,0.25); border-radius: 2px; padding: 
 .tag-predatory  { background: rgba(190,18,60,0.2);    color: #fda4af; }
 .tag-political  { background: rgba(99,102,241,0.15);  color: #a5b4fc; }
 .tag-account    { background: rgba(139,92,246,0.15);  color: #c4b5fd; }
+.tag-adult      { background: rgba(251,146,60,0.2);   color: #fb923c; }
+.tag-misogyny   { background: rgba(190,18,60,0.2);    color: #fda4af; }
+.tag-conspiracy { background: rgba(99,102,241,0.2);   color: #a5b4fc; }
+
+/* ── Flagged Follows ── */
+.flagged-follows-section { background: var(--surface); border-radius: 12px; padding: 1.5rem; border: 1px solid var(--amber); border-left: 3px solid var(--amber); margin-bottom: 2rem; }
 
 /* ── Misc ── */
 .empty-state { text-align: center; padding: 4rem 2rem; color: var(--muted); }
@@ -140,7 +146,7 @@ mark.highlight { background: rgba(239,68,68,0.25); border-radius: 2px; padding: 
     <h3>Drop your Instagram export here</h3>
     <p>Drag & drop your <code>.zip</code> export or the <code>comments.json</code> file</p>
     <p class="supported-formats">Accepts: Instagram data export ZIP &nbsp;·&nbsp; comments.json</p>
-    <button class="btn btn-primary" onclick="document.getElementById('file-input').click()">Choose File</button>
+    <button class="btn btn-primary" onclick="event.stopPropagation();document.getElementById('file-input').click()">Choose File</button>
     <input type="file" id="file-input" accept=".json,.txt,.zip" style="display:none">
   </div>
 
@@ -151,7 +157,7 @@ mark.highlight { background: rgba(239,68,68,0.25); border-radius: 2px; padding: 
     <ol>
       <li>Open Instagram → <strong>Settings & Privacy</strong></li>
       <li>Tap <strong>Your Activity</strong> → <strong>Download Your Information</strong></li>
-      <li>Select <strong>Comments</strong>, choose <strong>JSON</strong> format, and request download</li>
+      <li>Select <strong>Comments</strong> and <strong>Followers &amp; Following</strong>, choose <strong>JSON</strong> format, and request download</li>
       <li>Wait for Instagram's email, then download the <strong>.zip</strong> file</li>
       <li><strong>Drop the entire ZIP here</strong> — Scrub will find the comments automatically</li>
     </ol>
@@ -181,6 +187,13 @@ mark.highlight { background: rgba(239,68,68,0.25); border-radius: 2px; padding: 
     <div class="top-accounts" id="top-accounts-section" style="display:none">
       <h3>Most Flagged Accounts You Commented On</h3>
       <div id="top-accounts-list"></div>
+    </div>
+    <div id="flagged-follows-section" style="display:none" class="flagged-follows-section">
+      <div class="section-header" style="margin-bottom:1rem;">
+        <h2>Flagged Accounts You Follow <span id="follows-count-badge" style="font-size:0.85rem;color:var(--muted);font-weight:400;"></span></h2>
+      </div>
+      <div class="filters" id="follow-filters"></div>
+      <div id="follow-list" class="comment-list" style="margin-top:0.75rem;"></div>
     </div>
     <div class="section-header">
       <h2>Flagged Comments <span id="flag-count-badge" style="font-size:0.85rem;color:var(--muted);font-weight:400;"></span></h2>
@@ -562,6 +575,27 @@ const CONTEXTUAL_PATTERNS = [
 ];
 
 // ═══════════════════════════════════════════════════════
+// FOLLOW ANALYSIS PATTERNS
+// Checked against lowercased Instagram usernames
+// ═══════════════════════════════════════════════════════
+const ADULT_FOLLOW_PATTERNS = [
+  /porn|xxx|nsfw|onlyfans|nudes4u|cumslut|pussypics|sexvid|horny(?:girl|mom|milf)|milf|findom|camgirl|cam\.girl|hentai|ahegao|bdsm|kinkster|fetish|slut\.|\.slut|slutty|freakymom|escort|sugarbabe|sugar\.babe|mistress|domme|lewd(?:s|pics)|thothub|nudepics|nakedpics|adultcontent|18\+content/i
+];
+
+const EXTREMIST_FOLLOW_PATTERNS = [
+  { re: /1488|14\.88|heil_|_heil|whitepower|white\.power|whitepride|white\.pride|aryan\.?nation|aryan_|_aryan|naziism|kkk\.|vril_|_vril|churchofvril|agartha_|truthnuker|i64.hate|streitmacht|moe1488/, label: "Neo-nazi / white supremacist username", severity: 9 },
+  { re: /kill\.?all\.?(jews|blacks|muslims|gays)|jewkiller|niggerhunter|rapesquad|deathtojews|genocideis/, label: "Violent hate content", severity: 10 }
+];
+
+const INCEL_FOLLOW_PATTERNS = [
+  { re: /incel_|_incel|\.incel|incel\.|femoid|blackpill_|_blackpill|\.blackpill|mgtow_|_mgtow|looksmaxxing|looksmax\.official|redpill\.truth|manosphere|women\.are\.inferior|femalesare|hatewomen/, label: "Incel / misogynist content", severity: 7 }
+];
+
+const CONSPIRACY_FOLLOW_PATTERNS = [
+  { re: /qanon|wwg1wga|greatawakening|deepstate\.exposed|pizzagate\.truth|adrenochrome_|flatearth_|flat\.earth|antivaxx|anti\.vax\.truth|truther\.network|crisisactor|elites\.control|illuminati\.exposed|nwo\.truth/, label: "Conspiracy / fringe content", severity: 6 }
+];
+
+// ═══════════════════════════════════════════════════════
 // CATEGORY CONFIG
 // ═══════════════════════════════════════════════════════
 const CATEGORIES = {
@@ -573,8 +607,11 @@ const CATEGORIES = {
   threats:   { label: "Threats",                  color: "#7f1d1d", tagClass: "tag-threats"  },
   extremism: { label: "Extremist Content",        color: "#991b1b", tagClass: "tag-extremism"},
   predatory: { label: "Predatory / Inappropriate",color: "#be123c", tagClass: "tag-predatory"},
-  political: { label: "Political Content",        color: "#6366f1", tagClass: "tag-political"},
-  account:   { label: "Controversial Account",   color: "#8b5cf6", tagClass: "tag-account"  },
+  political:   { label: "Political Content",        color: "#6366f1", tagClass: "tag-political"},
+  account:     { label: "Controversial Account",   color: "#8b5cf6", tagClass: "tag-account"  },
+  adult:       { label: "Adult / NSFW",            color: "#f97316", tagClass: "tag-adult"    },
+  misogyny:    { label: "Misogynist / Incel",      color: "#be123c", tagClass: "tag-misogyny" },
+  conspiracy:  { label: "Conspiracy / Fringe",     color: "#6366f1", tagClass: "tag-conspiracy"},
 };
 
 // ═══════════════════════════════════════════════════════
@@ -642,6 +679,53 @@ function analyzeComment(comment) {
   if (DEGEN_USERS.has(ownerLower)) {
     const isExtremist = EXTREMIST_MARKERS.some(m => ownerLower.includes(m));
     flags.push({ type: 'account', label: isExtremist ? `Extremist account (@${comment.mediaOwner})` : `Controversial account (@${comment.mediaOwner})`, category: 'account', severity: isExtremist ? 8 : 3 });
+  }
+
+  return flags;
+}
+
+function analyzeFollow(username) {
+  const lower = username.toLowerCase();
+  const flags = [];
+  const seen = new Set();
+
+  // 1. Known accounts list
+  if (DEGEN_USERS.has(lower)) {
+    const isExtremist = EXTREMIST_MARKERS.some(m => lower.includes(m));
+    if (isExtremist) {
+      flags.push({ category: 'extremism', label: 'Known extremist account', severity: 9 });
+    } else {
+      flags.push({ category: 'account', label: 'Known controversial / political account', severity: 5 });
+    }
+    seen.add('extremism'); seen.add('account');
+  }
+
+  // 2. Adult / NSFW patterns
+  if (!seen.has('adult')) {
+    for (const pat of ADULT_FOLLOW_PATTERNS) {
+      if (pat.test(lower)) { flags.push({ category: 'adult', label: 'Adult / NSFW content account', severity: 7 }); seen.add('adult'); break; }
+    }
+  }
+
+  // 3. Extremist username patterns (catch accounts not yet in DEGEN_USERS)
+  if (!seen.has('extremism')) {
+    for (const { re, label, severity } of EXTREMIST_FOLLOW_PATTERNS) {
+      if (re.test(lower)) { flags.push({ category: 'extremism', label, severity }); seen.add('extremism'); break; }
+    }
+  }
+
+  // 4. Incel / misogyny patterns
+  if (!seen.has('misogyny')) {
+    for (const { re, label, severity } of INCEL_FOLLOW_PATTERNS) {
+      if (re.test(lower)) { flags.push({ category: 'misogyny', label, severity }); seen.add('misogyny'); break; }
+    }
+  }
+
+  // 5. Conspiracy / fringe patterns
+  if (!seen.has('conspiracy')) {
+    for (const { re, label, severity } of CONSPIRACY_FOLLOW_PATTERNS) {
+      if (re.test(lower)) { flags.push({ category: 'conspiracy', label, severity }); seen.add('conspiracy'); break; }
+    }
   }
 
   return flags;
@@ -736,9 +820,102 @@ function parseDateStr(str) {
 function parseComments(data) { return parseJsonComments(data); }
 
 // ═══════════════════════════════════════════════════════
+// PARSE  –  Following list (HTML and JSON formats)
+// ═══════════════════════════════════════════════════════
+function parseFollowingHtml(htmlText) {
+  const doc = new DOMParser().parseFromString(htmlText, 'text/html');
+  const usernames = new Set();
+  // IG now uses //_u/username redirect URLs in exports — handle both forms
+  const igUrlRe = /instagram\.com\/(?:_u\/)?([a-z0-9._]{2,30})\/?(?:[?#]|$)/i;
+  const usernameRe = /^[a-z0-9._]{2,30}$/i;
+  // These path segments appear in IG nav/footer links — not real usernames
+  const SKIP = new Set(['p','reel','reels','explore','accounts','stories','tv','about','help','privacy','terms','blog','press','api','jobs','directory','hashtag','_u']);
+
+  // Strategy 1: <a href="...instagram.com/username"> links
+  for (const a of doc.querySelectorAll('a[href*="instagram.com"]')) {
+    const m = (a.getAttribute('href') || '').match(igUrlRe);
+    if (m && m[1] && !SKIP.has(m[1].toLowerCase())) usernames.add(m[1].toLowerCase());
+  }
+
+  // Strategy 2: same table-label structure Instagram uses for comments
+  // Each entry is a <table>; rows have a text-node label then a value in a nested <div>
+  const FOLLOW_LABELS = new Set(['instagram username','username','name','account name','following','account']);
+  for (const table of doc.querySelectorAll('table')) {
+    for (const tr of table.querySelectorAll('tr')) {
+      const tds = tr.querySelectorAll('td');
+      if (!tds.length) continue;
+      const firstTd = tds[0];
+      const labelNode = [...firstTd.childNodes].find(n => n.nodeType === 3);
+      const label = (labelNode ? labelNode.textContent : firstTd.textContent).trim().split('\n')[0].trim().toLowerCase();
+      if (!FOLLOW_LABELS.has(label)) continue;
+      // Check anchor first
+      const a = firstTd.querySelector('a');
+      if (a) {
+        const m = (a.getAttribute('href') || '').match(igUrlRe);
+        if (m && !SKIP.has(m[1].toLowerCase())) { usernames.add(m[1].toLowerCase()); continue; }
+        const t = a.textContent.trim();
+        if (usernameRe.test(t)) { usernames.add(t.toLowerCase()); continue; }
+      }
+      // Plain text value in nested div (same pattern as comment parser)
+      const inner = firstTd.querySelector('div div') || firstTd.querySelector('div');
+      const val = inner ? inner.textContent.trim() : '';
+      if (val && usernameRe.test(val)) usernames.add(val.toLowerCase());
+    }
+  }
+
+  // Strategy 3: table rows where first cell is a plain username (simple two-column table)
+  if (usernames.size < 2) {
+    for (const tr of doc.querySelectorAll('tr')) {
+      const tds = tr.querySelectorAll('td');
+      if (!tds.length) continue;
+      const candidate = tds[0].textContent.trim().split('\n')[0].trim();
+      if (usernameRe.test(candidate) && !FOLLOW_LABELS.has(candidate.toLowerCase())) {
+        usernames.add(candidate.toLowerCase());
+      }
+    }
+  }
+
+  // Strategy 4: <li> items — some IG exports use a <ul> list
+  if (usernames.size < 2) {
+    for (const li of doc.querySelectorAll('li')) {
+      const a = li.querySelector('a');
+      if (a) {
+        const m = (a.getAttribute('href') || '').match(igUrlRe);
+        if (m && !SKIP.has(m[1])) { usernames.add(m[1].toLowerCase()); continue; }
+        const t = a.textContent.trim();
+        if (usernameRe.test(t)) usernames.add(t.toLowerCase());
+      } else {
+        const t = li.textContent.trim().split('\n')[0].trim();
+        if (usernameRe.test(t) && t.length >= 2) usernames.add(t.toLowerCase());
+      }
+    }
+  }
+
+  console.log('[Scrub] parseFollowingHtml: extracted', usernames.size, 'usernames');
+  return [...usernames];
+}
+
+function parseFollowingJson(data) {
+  const usernames = new Set();
+  const igUrlRe = /instagram\.com\/([a-z0-9._]{1,30})\/?/i;
+  const usernameRe = /^[a-z0-9._]{1,30}$/i;
+  // Handle: array at root, {relationships_following:[...]}, {following:[...]}
+  const arr = Array.isArray(data) ? data : (data.relationships_following || data.following || []);
+  for (const item of arr) {
+    for (const e of (item.string_list_data || [])) {
+      if (e.value && usernameRe.test(e.value)) { usernames.add(e.value.toLowerCase()); continue; }
+      const m = (e.href || '').match(igUrlRe);
+      if (m) usernames.add(m[1].toLowerCase());
+    }
+  }
+  console.log('[Scrub] parseFollowingJson: extracted', usernames.size, 'usernames from', arr.length, 'entries');
+  return [...usernames];
+}
+
+// ═══════════════════════════════════════════════════════
 // RUN ANALYSIS
 // ═══════════════════════════════════════════════════════
-function runAnalysis(comments) {
+function runAnalysis(comments, following = []) {
   const results = comments.map(c => { const flags = analyzeComment(c); return { ...c, flags, severity: maxSev(flags) }; });
   const flagged  = results.filter(r => r.flags.length > 0);
   const catCounts = {};
@@ -752,20 +929,27 @@ function runAnalysis(comments) {
     acctMap[c.mediaOwner].count++;
   }
   const topAccounts = Object.entries(acctMap).sort((a,b)=>b[1].count-a[1].count).slice(0,10);
-  return { total: comments.length, flagged, catCounts, riskScore, topAccounts, allResults: results };
+  const flaggedFollows = following
+    .map(u => { const flags = analyzeFollow(u); return flags.length ? { username: u, flags, severity: Math.max(...flags.map(f=>f.severity)) } : null; })
+    .filter(Boolean)
+    .sort((a,b) => b.severity - a.severity);
+  return { total: comments.length, flagged, catCounts, riskScore, topAccounts, allResults: results, flaggedFollows, followCount: following.length };
 }
 
 // ═══════════════════════════════════════════════════════
 // RENDER
 // ═══════════════════════════════════════════════════════
 let _catChart=null, _timeChart=null, _reportData=null, _flagged=[], _activeFilter='all';
+let _flaggedFollows=[], _activeFollowFilter='all';
 
 function renderResults(report, fileName) {
   _reportData=report; _flagged=report.flagged; _activeFilter='all';
+  _flaggedFollows=report.flaggedFollows||[]; _activeFollowFilter='all';
   document.getElementById('upload-screen').style.display='none';
   document.getElementById('results-screen').style.display='block';
   document.getElementById('file-name-display').textContent=fileName;
   renderStats(report); renderCharts(report); renderTopAccounts(report);
+  renderFlaggedFollows(report);
   renderFilters(report); renderComments(_flagged);
 }
 
@@ -773,11 +957,15 @@ function renderStats(r) {
   const {total,flagged,riskScore}=r;
   const rl=riskScore>=60?{label:'High Risk',cls:'risk-high'}:riskScore>=25?{label:'Medium Risk',cls:'risk-medium'}:{label:'Low Risk',cls:'risk-low'};
   const high=flagged.filter(c=>c.severity>=7).length, med=flagged.filter(c=>c.severity>=4&&c.severity<7).length;
+  const followsCard = r.followCount > 0
+    ? `<div class="stat-card"><div class="label">Flagged Follows</div><div class="value ${r.flaggedFollows.length?'text-amber':'text-green'}">${r.flaggedFollows.length}</div><div class="sublabel">${r.followCount} accounts scanned</div></div>`
+    : '';
   document.getElementById('stats-grid').innerHTML=`
     <div class="stat-card"><div class="label">Total Comments</div><div class="value text-accent">${total}</div><div class="sublabel">analyzed</div></div>
     <div class="stat-card"><div class="label">Flagged</div><div class="value ${flagged.length?'text-red':'text-green'}">${flagged.length}</div><div class="sublabel">${Math.round(flagged.length/Math.max(1,total)*100)}% of total</div></div>
     <div class="stat-card"><div class="label">High Severity</div><div class="value text-red">${high}</div><div class="sublabel">need immediate attention</div></div>
     <div class="stat-card"><div class="label">Medium Severity</div><div class="value text-amber">${med}</div><div class="sublabel">review recommended</div></div>
+    ${followsCard}
     <div class="stat-card"><div class="label">Overall Risk</div><div class="value" style="font-size:1.4rem;margin-top:0.3rem;"><span class="risk-badge ${rl.cls}">${rl.label}</span></div><div class="sublabel">Score: ${riskScore}/100</div></div>`;
 }
 
@@ -812,6 +1000,45 @@ function renderTopAccounts(r) {
   list.innerHTML=r.topAccounts.map(([o,{count,controversial}])=>`<div class="account-row"><div class="account-name">@${escapeHtml(o)}</div>${controversial?'<span class="account-flagged-tag">Controversial</span>':''}<div class="account-bar"><div class="account-bar-fill" style="width:${Math.round(count/max*100)}%"></div></div><div class="account-count">${count} flag${count!==1?'s':''}</div></div>`).join('');
 }
 
+function renderFlaggedFollows(r) {
+  const sec = document.getElementById('flagged-follows-section');
+  // Only show section if we actually scanned a following list
+  if (!r.followCount) { sec.style.display='none'; return; }
+  sec.style.display = 'block';
+  document.getElementById('follows-count-badge').textContent = `(${r.flaggedFollows.length} flagged of ${r.followCount} scanned)`;
+
+  if (!r.flaggedFollows.length) {
+    document.getElementById('follow-filters').innerHTML = '';
+    document.getElementById('follow-list').innerHTML = '<div class="empty-state"><div class="icon">✅</div><p>No questionable accounts found in your following list.</p></div>';
+    return;
+  }
+
+  const fCatCounts = {};
+  for (const f of r.flaggedFollows) for (const fl of f.flags) fCatCounts[fl.category] = (fCatCounts[fl.category]||0)+1;
+  const cats = Object.keys(fCatCounts);
+  document.getElementById('follow-filters').innerHTML = [
+    `<button class="filter-btn active" data-fcat="all" onclick="setFollowFilter('all')">All (${r.flaggedFollows.length})</button>`,
+    ...cats.map(cat=>`<button class="filter-btn" data-fcat="${cat}" onclick="setFollowFilter('${cat}')">${CATEGORIES[cat]?.label||cat} (${fCatCounts[cat]})</button>`)
+  ].join('');
+  renderFollowList(_flaggedFollows);
+}
+
+function setFollowFilter(cat) {
+  _activeFollowFilter = cat;
+  document.querySelectorAll('[data-fcat]').forEach(b => b.classList.toggle('active', b.dataset.fcat === cat));
+  renderFollowList(cat==='all' ? _flaggedFollows : _flaggedFollows.filter(f => f.flags.some(fl=>fl.category===cat)));
+}
+
+function renderFollowList(follows) {
+  const container = document.getElementById('follow-list');
+  if (!follows.length) { container.innerHTML='<div class="empty-state"><div class="icon">✅</div><p>No flagged accounts in this category.</p></div>'; return; }
+  container.innerHTML = follows.map(f => {
+    const sc=sevClass(f.severity), sl=sevLabel(f.severity);
+    const tags=f.flags.map(fl=>`<span class="flag-tag ${CATEGORIES[fl.category]?.tagClass||'tag-account'}">${escapeHtml(fl.label)}</span>`).join('');
+    return `<div class="comment-card ${sc}" style="display:flex;align-items:center;gap:0.75rem;flex-wrap:wrap;"><span class="comment-owner" style="flex:0 0 auto;">@${escapeHtml(f.username)}</span><span class="risk-badge ${sl.cls}" style="font-size:0.72rem;padding:0.2rem 0.6rem;flex:0 0 auto;">${sl.label}</span><div class="comment-flags" style="flex:1;">${tags}</div></div>`;
+  }).join('');
+}
+
 function renderFilters(r) {
   const c=document.getElementById('category-filters');
   const cats=Object.keys(r.catCounts);
@@ -843,7 +1070,7 @@ function renderComments(comments) {
 // ═══════════════════════════════════════════════════════
 function exportReport() {
   if (!_reportData) return;
-  const out={ generatedAt:new Date().toISOString(), summary:{ totalComments:_reportData.total, flaggedComments:_reportData.flagged.length, riskScore:_reportData.riskScore, categoryCounts:_reportData.catCounts }, flaggedComments:_reportData.flagged.map(c=>({ text:c.text, commentedOn:c.mediaOwner, date:formatDate(c.timestamp), severityScore:c.severity, flags:c.flags.map(f=>({label:f.label,category:f.category,severity:f.severity})) })) };
+  const out={ generatedAt:new Date().toISOString(), summary:{ totalComments:_reportData.total, flaggedComments:_reportData.flagged.length, riskScore:_reportData.riskScore, categoryCounts:_reportData.catCounts, followsScanned:_reportData.followCount||0, flaggedFollows:(_reportData.flaggedFollows||[]).length }, flaggedComments:_reportData.flagged.map(c=>({ text:c.text, commentedOn:c.mediaOwner, date:formatDate(c.timestamp), severityScore:c.severity, flags:c.flags.map(f=>({label:f.label,category:f.category,severity:f.severity})) })), flaggedFollows:(_reportData.flaggedFollows||[]).map(f=>({ username:f.username, severityScore:f.severity, flags:f.flags.map(fl=>({label:fl.label,category:fl.category,severity:fl.severity})) })) };
   const blob=new Blob([JSON.stringify(out,null,2)],{type:'application/json'});
   const url=URL.createObjectURL(blob);
   const a=document.createElement('a'); a.href=url; a.download='scrub-report.json'; a.click();
@@ -901,8 +1128,25 @@ async function processZip(file) {
       throw new Error('Found comment files but could not extract any comments. The export may be empty or in an unexpected format.');
     }
 
+    // Parse following list if present
+    let following = [];
+    // Prefer exact filename matches to avoid picking up following_hashtags.json etc.
+    const followPath =
+      allPaths.find(p => { const f = p.toLowerCase().replace(/\\/g,'/').split('/').pop(); return f === 'following.json' || f === 'following.html'; }) ||
+      allPaths.find(p => { const f = p.toLowerCase().replace(/\\/g,'/').split('/').pop(); return (f.startsWith('following') && !f.startsWith('followers')) && (f.endsWith('.html') || f.endsWith('.json')); });
+    console.log('[Scrub] followPath:', followPath);
+    if (followPath) {
+      setLoadingMsg('Scanning accounts you follow…');
+      try {
+        const fText = await zip.files[followPath].async('text');
+        following = followPath.toLowerCase().endsWith('.json')
+          ? parseFollowingJson(JSON.parse(fText))
+          : parseFollowingHtml(fText);
+      } catch(e) { console.warn('Could not parse following list:', e.message); }
+    }
+
     setLoadingMsg(`Analyzing ${allComments.length} comments…`);
-    const report = runAnalysis(allComments);
+    const report = runAnalysis(allComments, following);
     hideLoading();
     renderResults(report, file.name);
   } catch(err) {
@@ -936,7 +1180,7 @@ function resetApp() {
   document.getElementById('upload-screen').style.display='flex';
   document.getElementById('results-screen').style.display='none';
   document.getElementById('file-input').value='';
-  _flagged=[]; _reportData=null; _activeFilter='all';
+  _flagged=[]; _reportData=null; _activeFilter='all'; _flaggedFollows=[]; _activeFollowFilter='all';
   hideError();
 }
 
