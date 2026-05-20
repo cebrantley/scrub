@@ -1,0 +1,960 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Scrub | Instagram Presence Analyzer</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"></script>
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+:root {
+  --bg: #0f172a; --surface: #1e293b; --surface2: #334155;
+  --border: #475569; --text: #f1f5f9; --muted: #94a3b8;
+  --accent: #3b82f6; --red: #ef4444; --amber: #f59e0b;
+  --green: #10b981; --purple: #a78bfa; --orange: #fb923c;
+}
+body { background: var(--bg); color: var(--text); font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; min-height: 100vh; }
+code { font-family: 'Courier New', monospace; background: var(--surface2); padding: 0.1rem 0.3rem; border-radius: 3px; font-size: 0.85em; }
+
+/* ── Upload ── */
+#upload-screen { display: flex; flex-direction: column; align-items: center; justify-content: center; min-height: 100vh; padding: 2rem; gap: 1.5rem; }
+.logo { text-align: center; }
+.logo h1 { font-size: 3rem; font-weight: 800; background: linear-gradient(135deg, #3b82f6, #8b5cf6); -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text; }
+.logo p { color: var(--muted); font-size: 1.1rem; margin-top: 0.5rem; }
+
+.dropzone { width: 100%; max-width: 560px; border: 2px dashed var(--border); border-radius: 16px; padding: 3rem 2rem; text-align: center; cursor: pointer; transition: all 0.2s; background: var(--surface); }
+.dropzone:hover, .dropzone.drag-over { border-color: var(--accent); background: rgba(59,130,246,0.05); }
+.dropzone-icon { font-size: 3rem; margin-bottom: 1rem; }
+.dropzone h3 { font-size: 1.2rem; margin-bottom: 0.5rem; }
+.dropzone p { color: var(--muted); font-size: 0.9rem; margin-bottom: 0.4rem; }
+.dropzone .supported-formats { font-size: 0.8rem; color: var(--muted); opacity: 0.7; margin-bottom: 1.5rem; }
+
+.btn { display: inline-flex; align-items: center; gap: 0.5rem; padding: 0.6rem 1.4rem; border-radius: 8px; border: none; cursor: pointer; font-size: 0.95rem; font-weight: 500; transition: all 0.2s; }
+.btn-primary { background: var(--accent); color: white; }
+.btn-primary:hover { background: #2563eb; }
+.btn-ghost { background: transparent; color: var(--muted); border: 1px solid var(--border); }
+.btn-ghost:hover { color: var(--text); border-color: var(--text); }
+
+.instructions { width: 100%; max-width: 560px; background: var(--surface); border-radius: 12px; padding: 1.5rem; }
+.instructions h3 { font-size: 0.8rem; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); margin-bottom: 1rem; }
+.instructions ol { padding-left: 1.2rem; color: var(--muted); font-size: 0.9rem; line-height: 1.9; }
+.instructions ol li strong { color: var(--text); }
+
+.privacy-note { width: 100%; max-width: 560px; background: rgba(59,130,246,0.08); border: 1px solid rgba(59,130,246,0.2); border-radius: 10px; padding: 1rem 1.25rem; font-size: 0.85rem; color: var(--muted); text-align: center; }
+.privacy-note strong { color: var(--accent); }
+
+/* ── Results ── */
+#results-screen { display: none; min-height: 100vh; }
+.results-header { background: var(--surface); border-bottom: 1px solid var(--border); padding: 0.9rem 2rem; display: flex; align-items: center; gap: 1rem; position: sticky; top: 0; z-index: 10; flex-wrap: wrap; }
+.results-header h1 { font-size: 1.3rem; font-weight: 800; background: linear-gradient(135deg, #3b82f6, #8b5cf6); -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text; }
+.results-header .file-name { color: var(--muted); font-size: 0.85rem; }
+.header-actions { margin-left: auto; display: flex; gap: 0.5rem; }
+.results-body { padding: 2rem; max-width: 1400px; margin: 0 auto; }
+
+/* ── Stats ── */
+.stats-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 1rem; margin-bottom: 2rem; }
+.stat-card { background: var(--surface); border-radius: 12px; padding: 1.25rem; border: 1px solid var(--border); }
+.stat-card .label { font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); margin-bottom: 0.4rem; }
+.stat-card .value { font-size: 2rem; font-weight: 700; line-height: 1; }
+.stat-card .sublabel { font-size: 0.8rem; color: var(--muted); margin-top: 0.3rem; }
+.text-red { color: var(--red); } .text-amber { color: var(--amber); } .text-green { color: var(--green); } .text-accent { color: var(--accent); }
+
+.risk-badge { display: inline-flex; align-items: center; gap: 0.3rem; padding: 0.3rem 0.8rem; border-radius: 100px; font-size: 0.8rem; font-weight: 600; }
+.risk-low  { background: rgba(16,185,129,0.15); color: var(--green); }
+.risk-medium { background: rgba(245,158,11,0.15); color: var(--amber); }
+.risk-high { background: rgba(239,68,68,0.15); color: var(--red); }
+
+/* ── Charts ── */
+.charts-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; margin-bottom: 2rem; }
+@media (max-width: 768px) { .charts-grid { grid-template-columns: 1fr; } }
+.chart-card { background: var(--surface); border-radius: 12px; padding: 1.5rem; border: 1px solid var(--border); }
+.chart-card h3 { font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); margin-bottom: 1rem; }
+.chart-container { position: relative; height: 250px; }
+
+/* ── Top Accounts ── */
+.top-accounts { background: var(--surface); border-radius: 12px; padding: 1.5rem; border: 1px solid var(--border); margin-bottom: 2rem; }
+.top-accounts h3 { font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); margin-bottom: 1rem; }
+.account-row { display: flex; align-items: center; gap: 0.75rem; padding: 0.5rem 0; border-bottom: 1px solid var(--border); font-size: 0.9rem; }
+.account-row:last-child { border-bottom: none; }
+.account-name { flex: 1; font-weight: 500; }
+.account-count { color: var(--muted); font-size: 0.85rem; white-space: nowrap; }
+.account-bar { width: 80px; height: 6px; background: var(--surface2); border-radius: 3px; overflow: hidden; flex-shrink: 0; }
+.account-bar-fill { height: 100%; background: var(--accent); border-radius: 3px; }
+.account-flagged-tag { font-size: 0.7rem; padding: 0.15rem 0.5rem; border-radius: 100px; background: rgba(139,92,246,0.15); color: var(--purple); white-space: nowrap; }
+
+/* ── Filters / Comments ── */
+.section-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 1rem; }
+.section-header h2 { font-size: 1.1rem; font-weight: 600; }
+.filters { display: flex; gap: 0.5rem; flex-wrap: wrap; margin-bottom: 1rem; }
+.filter-btn { padding: 0.3rem 0.8rem; border-radius: 100px; border: 1px solid var(--border); background: transparent; color: var(--muted); font-size: 0.8rem; cursor: pointer; transition: all 0.15s; }
+.filter-btn:hover { border-color: var(--accent); color: var(--accent); }
+.filter-btn.active { background: var(--accent); color: white; border-color: var(--accent); }
+
+.comment-list { display: flex; flex-direction: column; gap: 0.75rem; }
+.comment-card { background: var(--surface); border-radius: 10px; padding: 1rem 1rem 1rem 1.25rem; border: 1px solid var(--border); border-left: 3px solid var(--border); }
+.comment-card.severity-high  { border-left-color: var(--red); }
+.comment-card.severity-medium { border-left-color: var(--amber); }
+.comment-card.severity-low   { border-left-color: var(--accent); }
+.comment-header { display: flex; align-items: center; gap: 0.75rem; margin-bottom: 0.5rem; flex-wrap: wrap; }
+.comment-owner { font-size: 0.85rem; font-weight: 600; color: var(--accent); }
+.comment-date  { font-size: 0.8rem; color: var(--muted); }
+.comment-text { font-size: 0.95rem; margin-bottom: 0.75rem; line-height: 1.5; word-break: break-word; }
+mark.highlight { background: rgba(239,68,68,0.25); border-radius: 2px; padding: 0 2px; color: inherit; }
+.comment-flags { display: flex; flex-wrap: wrap; gap: 0.4rem; }
+.flag-tag { display: inline-flex; align-items: center; gap: 0.25rem; padding: 0.2rem 0.6rem; border-radius: 4px; font-size: 0.75rem; font-weight: 500; }
+.tag-slurs      { background: rgba(239,68,68,0.15);  color: #fca5a5; }
+.tag-sexual     { background: rgba(251,146,60,0.15);  color: #fdba74; }
+.tag-profanity  { background: rgba(245,158,11,0.15);  color: #fcd34d; }
+.tag-drugs      { background: rgba(167,139,250,0.15); color: #c4b5fd; }
+.tag-violence   { background: rgba(239,68,68,0.2);   color: #f87171; }
+.tag-threats    { background: rgba(127,29,29,0.35);   color: #fca5a5; }
+.tag-extremism  { background: rgba(127,29,29,0.4);    color: #fca5a5; }
+.tag-predatory  { background: rgba(190,18,60,0.2);    color: #fda4af; }
+.tag-political  { background: rgba(99,102,241,0.15);  color: #a5b4fc; }
+.tag-account    { background: rgba(139,92,246,0.15);  color: #c4b5fd; }
+
+/* ── Misc ── */
+.empty-state { text-align: center; padding: 4rem 2rem; color: var(--muted); }
+.empty-state .icon { font-size: 3rem; margin-bottom: 1rem; }
+#loading { display: none; position: fixed; inset: 0; background: rgba(15,23,42,0.85); align-items: center; justify-content: center; z-index: 100; flex-direction: column; gap: 1rem; }
+#loading p { color: var(--muted); font-size: 0.9rem; }
+.spinner { width: 40px; height: 40px; border: 3px solid var(--border); border-top-color: var(--accent); border-radius: 50%; animation: spin 0.8s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
+.error-banner { background: rgba(239,68,68,0.1); border: 1px solid rgba(239,68,68,0.3); color: #fca5a5; padding: 0.75rem 1rem; border-radius: 8px; max-width: 560px; width: 100%; display: none; font-size: 0.9rem; }
+</style>
+</head>
+<body>
+
+<div id="loading"><div class="spinner"></div><p id="loading-msg">Analyzing your comments…</p></div>
+
+<!-- UPLOAD -->
+<div id="upload-screen">
+  <div class="logo">
+    <h1>Scrub</h1>
+    <p>Know what your Instagram says about you before an employer does</p>
+  </div>
+
+  <div class="dropzone" id="dropzone">
+    <div class="dropzone-icon">📂</div>
+    <h3>Drop your Instagram export here</h3>
+    <p>Drag & drop your <code>.zip</code> export or the <code>comments.json</code> file</p>
+    <p class="supported-formats">Accepts: Instagram data export ZIP &nbsp;·&nbsp; comments.json</p>
+    <button class="btn btn-primary" onclick="document.getElementById('file-input').click()">Choose File</button>
+    <input type="file" id="file-input" accept=".json,.txt,.zip" style="display:none">
+  </div>
+
+  <div class="error-banner" id="error-banner"></div>
+
+  <div class="instructions">
+    <h3>How to export your Instagram data</h3>
+    <ol>
+      <li>Open Instagram → <strong>Settings & Privacy</strong></li>
+      <li>Tap <strong>Your Activity</strong> → <strong>Download Your Information</strong></li>
+      <li>Select <strong>Comments</strong>, choose <strong>JSON</strong> format, and request download</li>
+      <li>Wait for Instagram's email, then download the <strong>.zip</strong> file</li>
+      <li><strong>Drop the entire ZIP here</strong> — Scrub will find the comments automatically</li>
+    </ol>
+  </div>
+
+  <div class="privacy-note">
+    🔒 <strong>100% private.</strong> Your file is analyzed entirely in your browser — nothing is ever uploaded anywhere.
+  </div>
+</div>
+
+<!-- RESULTS -->
+<div id="results-screen">
+  <div class="results-header">
+    <button class="btn btn-ghost" onclick="resetApp()" style="padding:0.4rem 0.8rem;font-size:0.85rem;">← Back</button>
+    <h1>Scrub</h1>
+    <span class="file-name" id="file-name-display"></span>
+    <div class="header-actions">
+      <button class="btn btn-ghost" onclick="exportReport()" style="font-size:0.85rem;">⬇ Export Report</button>
+    </div>
+  </div>
+  <div class="results-body">
+    <div class="stats-grid" id="stats-grid"></div>
+    <div class="charts-grid">
+      <div class="chart-card"><h3>Flag Categories</h3><div class="chart-container"><canvas id="category-chart"></canvas></div></div>
+      <div class="chart-card"><h3>Activity Timeline</h3><div class="chart-container"><canvas id="timeline-chart"></canvas></div></div>
+    </div>
+    <div class="top-accounts" id="top-accounts-section" style="display:none">
+      <h3>Most Flagged Accounts You Commented On</h3>
+      <div id="top-accounts-list"></div>
+    </div>
+    <div class="section-header">
+      <h2>Flagged Comments <span id="flag-count-badge" style="font-size:0.85rem;color:var(--muted);font-weight:400;"></span></h2>
+    </div>
+    <div class="filters" id="category-filters"></div>
+    <div id="comment-list" class="comment-list"></div>
+  </div>
+</div>
+
+<script>
+// ═══════════════════════════════════════════════════════
+// FLAGGED TERMS  (600+ base + 400+ additions = 1000+ total)
+// ═══════════════════════════════════════════════════════
+const FLAGGED_TERMS_LIST = [
+  // ── original list ──
+  "a55","a55hole","ahole","anal","analprobe","anilingus","anus","areola","areole",
+  "ass","assbang","assbanged","assbangs","asses","assfuck","assfucker","assh0le",
+  "asshat","assho1e","ass hole","assholes","assmaster","assmunch","asswipe","asswipes",
+  "azz","b1tch","babe","babes","ballsack","bang","banger","barf","bastard","bastards",
+  "bawdy","beaner","beardedclam","beastiality","beatch","beater","beaver","beeyotch",
+  "beotch","biatch","bigtits","big tits","bimbo","bitch","bitched","bitches","bitchy",
+  "blow job","blowjob","blowjobs","boink","bollock","bollocks","bollok","bone","boned",
+  "boner","boners","bong","boob","boobies","boobs","booby","booger","bosom","bosomy",
+  "bowel","bowels","breast","breasts","bugger","bukkake","bullshit","bull shit",
+  "bullshits","bullshitted","bullturds","bung","busty","butt","butt fuck","buttfuck",
+  "buttfucker","buttplug","c.0.c.k","c.o.c.k.","c.u.n.t","c0ck","c-0-c-k","caca",
+  "cameltoe","carpetmuncher","cawk","cervix","chinc","chincs","chink","chode","chodes",
+  "cl1t","climax","clit","clitoris","clitorus","clits","clitty","cocain","cocaine",
+  "cock","c-o-c-k","cockblock","cockholster","cockknocker","cocks","cocksmoker",
+  "cocksucker","cock sucker","coital","commie","condom","coon","coons","corksucker",
+  "crabs","crack","cracker","crackwhore","crap","crappy","cum","cummin","cumming",
+  "cumshot","cumshots","cumslut","cumstain","cunilingus","cunnilingus","cunny","cunt",
+  "c-u-n-t","cuntface","cunthunter","cuntlick","cuntlicker","cunts","d0ng","d0uch3",
+  "d0uche","d1ck","d1ld0","d1ldo","dago","dagos","dammit","damn","damned","damnit",
+  "dawgie-style","dick","dickbag","dickdipper","dickface","dickflipper","dickhead",
+  "dickheads","dickish","dick-ish","dickripper","dicksipper","dickweed","dickwhipper",
+  "dickzipper","diddle","dike","dildo","dildos","diligaf","dillweed","dimwit","dingle",
+  "dipship","doggie-style","doggy-style","dong","doofus","doosh","dopey","douch3",
+  "douche","douchebag","douchebags","douchey","drunk","dumass","dumbass","dumbasses",
+  "dummy","dyke","dykes","ejaculate","enlargement","erect","erection","erotic",
+  "essohbee","extacy","extasy","f.u.c.k","fack","fag","fagg","fagged","faggit",
+  "faggot","fagot","fags","faig","faigt","fannybandit","fart","fartknocker","fat",
+  "felch","felcher","felching","fellate","fellatio","feltch","feltcher","fisted",
+  "fisting","fisty","floozy","foad","fondle","foreskin","freex","frigg","frigga",
+  "fubar","fuck","f-u-c-k","fuckass","fucked","fucker","fuckface","fuckin","fucking",
+  "fucknugget","fucknut","fuckoff","fucks","fucktard","fuck-tard","fuckup","fuckwad",
+  "fuckwit","fudgepacker","fuk","fvck","fxck","gae","gai","ganja","gay","gays","gey",
+  "gfy","ghay","ghey","gigolo","glans","goatse","godamn","godamnit","goddam",
+  "goddammit","goddamn","goldenshower","gonad","gonads","gook","gooks","gringo",
+  "gspot","g-spot","gtfo","guido","h0m0","h0mo","handjob","hard on","hebe","heeb",
+  "hell","hemp","heroin","herp","herpes","herpy","hitler","hiv","hobag","hom0","homey",
+  "homo","homoey","honky","hookah","hooker","hoor","hooter","hooters","horny","hump",
+  "humped","humping","hussy","hymen","inbred","incest","injun","j3rk0ff","jackass",
+  "jackhole","jackoff","jap","japs","jerk","jerk0ff","jerked","jerkoff","jism","jiz",
+  "jizm","jizz","jizzed","junkie","junky","kike","kikes","kill","kinky","kkk","klan",
+  "knobend","kooch","kooches","kootch","kraut","kyke","labia","lech","leper","lesbians",
+  "lesbo","lesbos","lez","lezbian","lezbians","lezbo","lezbos","lezzie","lezzies",
+  "lezzy","lmao","lmfao","loin","loins","lube","lusty","mams","massa","masterbate",
+  "masterbating","masterbation","masturbate","masturbating","masturbation","maxi",
+  "menses","menstruate","menstruation","meth","m-fucking","mofo","molest","moolie",
+  "moron","motherfucker","motherfucking","mtherfucker","mthrfucker","mthrfucking",
+  "muff","muffdiver","murder","muthafuckaz","muthafucker","mutherfucker",
+  "mutherfucking","muthrfucking","nad","nads","naked","napalm","nappy","nazi","nazism",
+  "negro","nigga","niggah","niggas","niggaz","nigger","niggers","niggle","niglet",
+  "nimrod","nipple","nooky","nympho","opiate","opium","oral","orally","organ","orgasm",
+  "orgasmic","orgies","orgy","ovary","ovum","ovums","p.u.s.s.y.","paddy","paki",
+  "pantie","panties","panty","pcp","pecker","pedo","pedophile","pedophilia",
+  "pedophiliac","pee","peepee","penetrate","penetration","penial","penile","penis",
+  "perversion","peyote","phalli","phallic","phuck","pillowbiter","pimp","pinko","piss",
+  "pissed","pissoff","piss-off","pms","polack","pollock","poon","poontang","porn",
+  "porno","pornography","pot","potty","prick","prig","prostitute","prude","pube",
+  "pubic","pubis","punkass","punky","puss","pussies","pussy","pussypounder","puto",
+  "queaf","queef","queer","queero","queers","quicky","quim","rape","raped","raper",
+  "rapist","raunch","rectal","rectum","rectus","reefer","reetard","reich","retard",
+  "retarded","rimjob","ritard","rtard","r-tard","rum","rump","rumprammer","ruski",
+  "s.h.i.t.","s.o.b.","s0b","sadism","sadist","scag","scantily","schizo","schlong",
+  "screw","screwed","scrog","scrot","scrote","scrotum","scrud","scum","seaman",
+  "seamen","seduce","semen","sex","sexual","sh1t","s-h-1-t","shit","s-h-i-t","shite",
+  "shiteater","shitface","shithead","shithole","shithouse","shits","shitt","shitted",
+  "shitter","shitty","shiz","sissy","skag","skank","slave","sleaze","sleazy","slut",
+  "slutdumper","slutkiss","sluts","smegma","smut","smutty","snatch","sniper","snuff",
+  "s-o-b","sodom","sperm","spic","spick","spik","spiks","spooge","spunk","steamy",
+  "stfu","stiffy","stoned","strip","stroke","stupid","suck","sucked","sucking",
+  "sumofabiatch","t1t","tampon","tard","tawdry","teabagging","teat","terd","teste",
+  "testee","testes","testicle","testis","thrust","thug","tinkle","tit","titfuck",
+  "titi","tits","tittiefucker","titties","titty","tittyfuck","tittyfucker","toke",
+  "toots","tramp","transsexual","trashy","tubgirl","turd","tush","twat","twats",
+  "ugly","urine","uterus","uzi","vag","vagina","valium","viagra","vomit","voyeur",
+  "vulgar","vulva","wad","wang","wank","wanker","wazoo","weed","weenie","weewee",
+  "weiner","weirdo","wetback","wh0re","wh0reface","whitey","whoralicious","whore",
+  "whorealicious",
+
+  // ── profanity / vulgar additions ──
+  "fuckboy","fuckboi","fuck boi","fux","fucks0","phukk","phukking","motha","mutha",
+  "mutha fucka","dipshit","dip shit","shitstain","shit stain","assclown","ass clown",
+  "twatwaffle","cuntwaffle","numbnuts","numb nuts","neckbeard","turd burglar",
+  "shitbird","shitbag","shitgibbon","clusterfuck","cluster fuck","buttmunch",
+  "dicknose","cockwomble","fucktrumpet","jizzwhistle","bellend","pillock","tosser",
+  "wanker","muppet","piss off","pisshead","pisspot","tit head","bell end",
+  "b!tch","b*tch","sh*t","f*ck","f**k","@ss","@$$","a$s","a$s","a5s","a$$",
+  "s.h.i.t","sh!t","shyt","sheit","sheeit","fucc","fookin","fooking","foken",
+  "fokking","frik","frig","frickin","fricking","frickn","friggin","frigging",
+  "effing","effen","efing","mfer","mfing","mf","af","wtf","stfu","gtfo","omfg",
+
+  // ── racial / ethnic / religious slurs ──
+  "jigaboo","sambo","pickaninny","tar baby","jungle bunny","cotton picker",
+  "porch monkey","moon cricket","spook","coon","spade","buck","boy",
+  "towelhead","raghead","camel jockey","sandnigger","sand nigger","sandmonkey",
+  "sand monkey","muzzie","muzzies","habibi bomb","terrorist","jihadi",
+  "zipperhead","ching chong","chingchong","nip","slanteye","slant eye",
+  "gook","chink","chinaman","yellowface","rice picker","bat eater","dog eater",
+  "yid","yids","hymie","hymies","jewboy","jewboys","kike","kikel","hebe","heeb",
+  "zionist pig","antisemite","dirty jew",
+  "wop","wops","guinea","ginny","dago","greaseball","macaroni",
+  "mick","micks","paddy","limey","kraut","fritz","hun","frog","frenchy",
+  "wetback","beaner","spic","taco","border hopper","anchor baby","illegal",
+  "redskin","squaw","savage","prairie nigger","chief","injun","scalp",
+  "halfbreed","half-breed","mulatto","quadroon","octoroon",
+  "coon","darkie","sambo","negroid","blackie","blackface",
+  "uppity","porch","overseer",
+  "white trash","trailer trash","redneck","hillbilly","cracker","peckerwood",
+  "honky","whitey","snow monkey","vanilla gorilla",
+
+  // ── homophobic / transphobic ──
+  "tranny","trannies","trann","transvestite","shemale","she-male","heshe","he-she",
+  "poofter","poofta","poof","battyboy","batty boy","battyman","batty",
+  "maricon","maricón","marica","joto","jotos","bujarrón","mariposa",
+  "faggot","fagot","fag","queer","dyke","homo","sodomite",
+  "pansy","fairy","nancy","sissy","limp wrist","limp-wrist","invert",
+  "chichi man","anti-gay","no homo","no-homo",
+
+  // ── ableist ──
+  "retard","retarded","r-tard","rtard","reetard","r3tard","ret4rd","r*tard",
+  "retarted","re-tard","spaz","spastic","mong","mongoloid","window licker",
+  "sped","special ed","short bus","helmet case","downsy","downsie","downie",
+  "cripple","gimp","handicapped","wheelchair warrior","deaf and dumb",
+  "mute","dumb","mental case","lunatic","psycho","nutcase","nutjob","loony",
+  "crazy","insane","schizo","psychopath","sociopath",
+
+  // ── misogynistic / sexual harassment ──
+  "thot","thotty","thottie","thots","ho","hoe","hoes","skank","sket",
+  "roastie","femoid","foid","becky","stacy","karen","bimbo",
+  "send nudes","nudes","nude pics","naked pics","sex tape","sextape",
+  "onlyfans","leak her","drop her","show tits","show ass","show me your",
+  "where are the nudes","send it","drop the vid","rate her body",
+  "she asked for it","asking for it","got what she deserved",
+  "make me a sandwich","back to the kitchen","get back in the kitchen",
+  "women belong","females are","females only","females are inferior",
+
+  // ── incel / extremist ──
+  "incel","incels","volcels","blackpill","black pill","redpill","red pill",
+  "mgtow","looksmatch","looksmaxxing","heightmaxxing","mogging","looksmax",
+  "chadfish","betabux","hypergamy","femoid","foid","roastie","thot",
+  "clown world","honkpill","based and redpilled","soy boy","soyboy",
+  "cuck","cucks","cucked","cuckold","npc","npcs","normie","normies",
+  "bluepilled","virgin loser",
+
+  // ── self-harm / suicide encouragement ──
+  "kys","kys yourself","go kill yourself","go die","neck yourself",
+  "rope yourself","rope yourself fagot","drink bleach","eat bleach",
+  "go drink bleach","off yourself","off yourself loser","end yourself",
+  "end it all","kill yourself","nobody likes you","nobody wants you",
+  "everyone hates you","41 percent","41%","do it","do the deed",
+  "hang yourself","slash yourself","cut yourself","bleed out",
+
+  // ── threats / violence glorification ──
+  "catch you slipping","catch you lacking","on sight","on-sight",
+  "slide on you","slide on him","slide on her","spin the block",
+  "clap you","clap em","pop you","pop em","pop off","dome you",
+  "one in the dome","wet you up","wet him up","blick","glick","brrrt",
+  "rack up","body count","bodied","body bag","catch a body",
+  "shooting spree","school shooter","mass shooter","shoot up the",
+  "bomb threat","ied","pipe bomb","school shooting","open season",
+  "put a bullet","cap your ass","cap him","slap the shit","beat your ass",
+
+  // ── drug slang (expanded) ──
+  "molly","mdma","mandy","pingers","pinger","ecstasy pill","x pill",
+  "perc","percs","percocet","perc30","perc 30","m30","m-30",
+  "oxy","oxys","oxycodone","oxycontin","hillbilly heroin",
+  "xan","xans","xanny","xannies","zannie","zannies","bars","zanax",
+  "lean","sizzurp","purple drank","purp","sizz","drank","act","actavis",
+  "promethazine","codeine cough syrup","texas tea",
+  "smack","horse","dope","junk","black tar","china white","white horse",
+  "yayo","yeyo","nose candy","fishscale","white girl","snow white",
+  "bird","work","soft","hard","brick","slab","eight ball","8ball","8 ball",
+  "fent","fentanyl","fetty","blues","blue","dirty 30","pressed","m30 pill",
+  "tranq","tranquilizer","xylazine",
+  "addys","addy","dexies","dexedrine","ritalin","study drug","adderall",
+  "shrooms","mushies","cubensis","cubes","psilocybin","gold cap","golden teacher",
+  "acid","lsd","tabs","blotter","lucy","dose","tripping","trip","dropped acid",
+  "ket","ketamine","special k","vitamin k","horse tranq","super k",
+  "roofie","rufie","roophie","rohypnol","ghb","liquid g","liquid ecstasy","gb",
+  "whippets","nitrous","nangs","laughing gas","nos","whip-its","whipits",
+  "dabs","wax","shatter","budder","rosin","live resin","concentrate","dab pen",
+  "oil pen","cart","carts","cartridge","thc cart","dank vape",
+  "speedball","goofball","hotshot",
+  "flakka","bath salts","spice","k2","synthetic weed","fake weed",
+  "blunt","spliff","dutchie","swisher","phillies","cigarillo wrap",
+  "snow","coke","blow","snort","rail","line","bump","ski","skiing",
+  "mule","plug","trap","trapping","trapper","dope boy","dope man",
+  "plug walk","moving work","serving","re-up","re up","reup","pack","bagging up",
+  "cut","stepped on","stepped","bagged up","whip it","cook it up","cook up",
+  "score","copped","cop some","hit a lick","lick","came up",
+  "ounce","oz","quarter","half zip","zip","QP","elbow","p","pound","bird",
+  "front me","fronted","fronting","on consignment",
+  "needle","shooting up","shoot up","mainline","skin pop","fix","fix my fix",
+  "overdose","od","od'd","nodding","nod","on the nod","dope sick","fiending",
+  "feening","jones","jonesing","withdrawal","withdrawals","detox","cold turkey",
+
+  // ── Spanish profanity ──
+  "puta","putas","puto","putos","hijo de puta","hdp","hdp",
+  "pendejo","pendeja","pendejos","pendejas","pendejada",
+  "cabron","cabrón","cabrones","cabrona","cabronazo",
+  "chinga","chingada","chingado","chingadera","chingadazo","chingon","chin",
+  "coño","cono","coños","recontra","recontracoño",
+  "mierda","mierdas","mierdon",
+  "maricon","maricón","maricones","marica","maricona",
+  "joder","jodete","jodido","jodida",
+  "culero","culera","culeros","culeras","culo","culos",
+  "pinche","pinches","pinchecabron",
+  "verga","vergas","vergon","vergota","vergazo",
+  "mamada","mamadas","mamar","mamón","mamelón",
+  "choto","chota","chotos","chotar",
+  "pajero","pajera","pajear","pajearse",
+
+  // ── additional racial slurs ──
+  "jiggaboo","jigga","zigaboo","zigabo","zigga",
+  "spook","spooky","spooks",
+  "chotch","choch","jewface","jewfag",
+  "nig","nigs","nigg","niggress","nigglet","niggard",
+  "n1gga","n1gger","n!gga","n!gger","niqqer","niqqa","niqq",
+  "knob jockey","pillow biter","fudge packer","fudge-packer","butt pirate",
+  "carpet muncher","carpet-muncher","muff diver","muff-diver",
+
+  // ── body shaming ──
+  "fatso","fatty","fat ass","fatass","lardass","lard ass","landwhale",
+  "land whale","hamplanet","ham planet","fatass","tubby","pig","piggy",
+  "cow","moo","whale","elephant","disgusting pig","eat a salad",
+  "fugly","hideous","beast","monster","creature","goblin","troll",
+  "ugly ass","ugly bitch","ugly hoe","ugly ass hoe",
+
+  // ── more slurs ──
+  "raghead","dune coon","mud person","subhuman","untermensch",
+  "white power","white pride","14 words","88","1488",
+  "gas the","final solution","shoah","anti semit","jew hater",
+  "death to","death to all","kill all","exterminate",
+
+  // ── stalking / predatory ──
+  "nonce","groomer","grooming","predator","predatory","perv","pervert",
+  "chester","chester the molester","dirty old man","creep","creeper",
+  "sliding in dms","slide in your dms","send me a pic","send pics",
+  "send a pic","wanna see","what do you look like","where do you live",
+  "are you alone","are you home alone","what are you wearing",
+  "loli","lolicon","shotacon","cp","child porn","underage",
+  "barely legal","just turned 18","she looks young"
+];
+
+// ═══════════════════════════════════════════════════════
+// CATEGORY SETS
+// ═══════════════════════════════════════════════════════
+const SLUR_TERMS = new Set([
+  "beaner","chinc","chincs","chink","coon","coons","cracker","dago","dagos",
+  "dyke","dykes","fag","fagg","fagged","faggit","faggot","fagot","fags","faig","faigt",
+  "gook","gooks","gringo","guido","hebe","heeb","injun","jap","japs","kike","kikes",
+  "kraut","kyke","lesbo","lesbos","lez","lezbian","lezbians","lezbo","lezbos","lezzie",
+  "lezzies","lezzy","moolie","negro","nigga","niggah","niggas","niggaz","nigger",
+  "niggers","niglet","paddy","paki","polack","pollock","ruski","spic","spick","spik",
+  "spiks","wetback","whitey","massa","honky","nazi","nazism","kkk","klan","reich",
+  "hitler","jigaboo","sambo","pickaninny","tar baby","jungle bunny","cotton picker",
+  "porch monkey","moon cricket","spook","towelhead","raghead","camel jockey",
+  "sandnigger","sand nigger","sandmonkey","sand monkey","muzzie","muzzies","zipperhead",
+  "ching chong","chingchong","nip","slanteye","slant eye","yid","hymie","jewboy","wop",
+  "guinea","greaseball","mick","redskin","squaw","mulatto","halfbreed","half-breed",
+  "tranny","trannies","shemale","she-male","poofter","poofta","battyboy","batty boy",
+  "battyman","maricon","maricón","marica","joto","uppity","darkie","sambo","blackie",
+  "spade","buck","jiggaboo","jigga","zigaboo","nig","nigs","nigg","n1gga","n1gger",
+  "n!gga","n!gger","niqqer","niqqa","raghead","dune coon","mud person","subhuman",
+  "untermensch","14 words","88","1488","gas the","sand monkey","chinaman","bat eater",
+  "white power","white pride","fudge packer","fudge-packer","butt pirate",
+  "carpet muncher","muff diver","mud people","prairie nigger","porch"
+]);
+
+const SEXUAL_TERMS = new Set([
+  "anal","analprobe","anilingus","anus","areola","areole","assbang","assbanged",
+  "assbangs","assfuck","assfucker","assmaster","assmunch","beardedclam","beastiality",
+  "bigtits","big tits","blow job","blowjob","blowjobs","boink","boob","boobies",
+  "boobs","booby","bosom","bosomy","breast","breasts","bugger","bukkake","bung","busty",
+  "buttfuck","buttfucker","buttplug","cameltoe","carpetmuncher","cawk","cervix","cl1t",
+  "climax","clit","clitoris","clitorus","clits","clitty","c0ck","c.0.c.k","c.o.c.k.",
+  "c-0-c-k","c-o-c-k","cock","cockblock","cockholster","cockknocker","cocks",
+  "cocksmoker","cocksucker","cock sucker","coital","condom","crabs","cum","cummin",
+  "cumming","cumshot","cumshots","cumslut","cumstain","cunilingus","cunnilingus",
+  "cunny","cunt","c.u.n.t","c-u-n-t","cuntface","cunthunter","cuntlick","cuntlicker",
+  "cunts","d0ng","d1ck","d1ld0","d1ldo","dawgie-style","dick","dickbag","dickdipper",
+  "dickface","dickflipper","dickhead","dickheads","dickish","dickripper","dicksipper",
+  "dickweed","dickwhipper","dickzipper","diddle","dildo","dildos","doggie-style",
+  "doggy-style","dong","ejaculate","enlargement","erect","erection","erotic",
+  "fannybandit","felch","felcher","felching","fellate","fellatio","feltch","feltcher",
+  "fisted","fisting","fisty","fondle","foreskin","gigolo","glans","goatse",
+  "goldenshower","gonad","gonads","gspot","g-spot","handjob","hard on","hymen",
+  "incest","jism","jiz","jizm","jizz","jizzed","kinky","knobend","kooch","kooches",
+  "kootch","labia","lesbians","loin","loins","lube","lusty","mams","masterbate",
+  "masterbating","masterbation","masturbate","masturbating","masturbation","molest",
+  "muff","muffdiver","nympho","oral","orally","organ","orgasm","orgasmic","orgies",
+  "orgy","ovary","ovum","ovums","p.u.s.s.y.","pantie","panties","panty","pecker",
+  "pedo","pedophile","pedophilia","pedophiliac","peepee","penetrate","penetration",
+  "penial","penile","penis","perversion","phalli","phallic","pillowbiter","pimp",
+  "poon","poontang","porn","porno","pornography","prick","prostitute","pube","pubic",
+  "pubis","puss","pussies","pussy","pussypounder","queaf","queef","queer","queero",
+  "queers","quicky","quim","rape","raped","raper","rapist","raunch","rectal","rectum",
+  "rectus","rimjob","rump","rumprammer","sadism","sadist","scrot","scrote","scrotum",
+  "seaman","seamen","seduce","semen","sex","sexual","smegma","snatch","sodom","sperm",
+  "spooge","spunk","steamy","stiffy","strip","teabagging","teat","teste","testee",
+  "testes","testicle","testis","thrust","tit","titfuck","titi","tits","tittiefucker",
+  "titties","titty","tittyfuck","tittyfucker","transsexual","tubgirl","twat","twats",
+  "uterus","vag","vagina","virgin","voyeur","vulva","wank","wanker","wang",
+  "fudgepacker","thot","thotty","skank","sket","roastie","femoid","foid","send nudes",
+  "nudes","naked pics","sex tape","sextape","loli","lolicon","shotacon","cp",
+  "nonce","groomer","barely legal"
+]);
+
+const DRUG_TERMS = new Set([
+  "cocain","cocaine","crack","extacy","extasy","ganja","hemp","heroin","hookah",
+  "junkie","junky","meth","opiate","opium","pcp","peyote","pot","reefer","toke",
+  "weed","stoned","bong","valium","viagra","rum","booze","molly","mdma","mandy",
+  "pingers","pinger","perc","percs","percocet","oxy","oxys","oxycodone","oxycontin",
+  "xan","xans","xanny","xannies","lean","sizzurp","purple drank","purp","codeine",
+  "smack","horse","yayo","yeyo","fishscale","fent","fentanyl","fetty","blues",
+  "tranq","xylazine","addys","addy","dexies","shrooms","mushies","cubensis","lsd",
+  "blotter","ket","ketamine","special k","roofie","rufie","ghb","whippets","nangs",
+  "nitrous","dabs","wax","shatter","budder","rosin","speedball","flakka","bath salts",
+  "spice","k2","blunt","spliff","snow","blow","snort","rail","bump","ski","skiing",
+  "shooting up","mainline","skin pop","overdose","dope sick","fiending","feening",
+  "dope","junk","black tar","china white","nose candy","eight ball","8ball",
+  "molly pill","hillbilly heroin","angel dust","bars","zanax","act","actavis",
+  "promethazine","purple drank","texas tea","bird","work","soft","hard","brick",
+  "eight ball","dirty 30","m30","pressed","blues","fetty","oil pen","dab pen",
+  "cart","carts","thc cart","live resin","concentrate","tranquilizer","ritalin",
+  "adderall","speedball","goofball","hotshot","flakka","synthetic weed","fake weed",
+  "pack","re-up","reup","bagging up","cook up","whip it","trap","trapping","plug",
+  "score","copped","ounce","QP","zip","half zip","quarter","elbow","pound"
+]);
+
+const VIOLENCE_TERMS = new Set([
+  "kill","murder","napalm","sniper","snuff","uzi","shooting spree","school shooter",
+  "mass shooter","bomb threat","ied","pipe bomb","open season","put a bullet",
+  "cap your ass","cap him","catch a body","body bag","bodied","rack up","blick","glick"
+]);
+
+// ═══════════════════════════════════════════════════════
+// CONTEXTUAL PATTERNS
+// ═══════════════════════════════════════════════════════
+const CONTEXTUAL_PATTERNS = [
+  { pattern: /i\s+know\s+where\s+you\s+(live|stay|are)/i, label: "Threatening (location)", category: "threats", severity: 9 },
+  { pattern: /\b(gonna|going to|will|ima|imma)\s+(kill|hurt|find|get)\s+(you|u|him|her|them)\b/i, label: "Violent Threat", category: "threats", severity: 10 },
+  { pattern: /\b(kys|kill\s+your\s*self|go\s+kill\s+yourself)\b/i, label: "Self-Harm Encouragement", category: "threats", severity: 9 },
+  { pattern: /\b(neck|hang|rope|off|end)\s+your\s*self\b/i, label: "Self-Harm Encouragement", category: "threats", severity: 9 },
+  { pattern: /\bdrink\s+bleach\b|\beat\s+bleach\b/i, label: "Self-Harm Encouragement", category: "threats", severity: 9 },
+  { pattern: /\b(go\s+die|nobody\s+wants\s+you|nobody\s+likes\s+you|everyone\s+hates\s+you)\b/i, label: "Targeted Harassment", category: "threats", severity: 7 },
+  { pattern: /\b1488\b|white\s+power|white\s+pride|heil\s+hitler|gas\s+the\s+(jews?|blacks?)/i, label: "White Supremacist Content", category: "extremism", severity: 10 },
+  { pattern: /alligator\s+bait|porch\s+monk(ey|ies)|watermel\w*\s+(muncher|lover|eater)|cotton\s+pick\w*/i, label: "Racial Slur (contextual)", category: "slurs", severity: 9 },
+  { pattern: /\bnormalize\s+hate\b/i, label: "Hate Normalization", category: "extremism", severity: 8 },
+  { pattern: /\b(6th|7th|8th|9th|10th|11th|12th)\s+grade\s+(girl|boy|kid|student|girls?|boys?)\b/i, label: "Predatory (minor reference)", category: "predatory", severity: 9 },
+  { pattern: /\bi\s+love\s+(freshman|freshmen|sophomores?)\b/i, label: "Predatory (student reference)", category: "predatory", severity: 7 },
+  { pattern: /\bfudge\s+packer\b/i, label: "Homophobic Slur (contextual)", category: "slurs", severity: 8 },
+  { pattern: /\bslave\s+(smh|lol|lmao|fr\b|though|tho\b|life)\b/i, label: "Racial Context (slave reference)", category: "slurs", severity: 7 },
+  { pattern: /\bcatch\s+you\s+(slipping|lacking)\b/i, label: "Threatening (street)", category: "threats", severity: 7 },
+  { pattern: /\bon\s+sight\b|\bonsight\b/i, label: "Threatening (on sight)", category: "threats", severity: 8 },
+  { pattern: /\bspin\s+the\s+block\b|\bslide\s+on\s+(you|him|her|them)\b/i, label: "Threatening (gang violence)", category: "threats", severity: 8 },
+  { pattern: /\bshoot\s+up\s+(the|a|his|her|your)\b/i, label: "Violent Threat (shooting)", category: "threats", severity: 10 },
+  { pattern: /\b(shoot|shooting)\s+(up\s+)?(the\s+)?(school|church|mall|club|store)\b/i, label: "Mass Violence Reference", category: "extremism", severity: 10 },
+  { pattern: /\bfinal\s+solution\b|\bdeath\s+to\s+all\b|\bkill\s+all\s+(the\s+)?(jews?|blacks?|muslims?|gays?)\b/i, label: "Genocidal Content", category: "extremism", severity: 10 },
+  { pattern: /\bchud\b/i, label: "Derogatory (chud)", category: "profanity", severity: 4 },
+  { pattern: /\b41\s*%\b|\bforty.one\s+percent\b/i, label: "Anti-Trans Harassment (41%)", category: "slurs", severity: 8 },
+  { pattern: /\bwhere\s+(do\s+you|you\s+)live\b|\byour\s+address\b|\bi\s+found\s+your\s+(house|address|location)\b/i, label: "Doxxing / Stalking", category: "threats", severity: 9 },
+  { pattern: /\bare\s+you\s+(home\s+)?alone\b|\bwhat\s+are\s+you\s+wearing\b|\bsend\s+me\s+a\s+pic\b/i, label: "Solicitation / Predatory", category: "predatory", severity: 8 },
+  { pattern: /\b(she|he)\s+(looks\s+)?(so\s+)?(young|underage|a\s+minor)\b/i, label: "Minor Sexualization", category: "predatory", severity: 9 },
+  { pattern: /\bf\s*[_\-\*]+\s*[ck]\b|\bs\s*[_\-\*]+\s*[th]\b/i, label: "Censored Profanity", category: "profanity", severity: 3 }
+];
+
+// ═══════════════════════════════════════════════════════
+// CATEGORY CONFIG
+// ═══════════════════════════════════════════════════════
+const CATEGORIES = {
+  slurs:     { label: "Hate Speech / Slurs",     color: "#ef4444", tagClass: "tag-slurs"    },
+  sexual:    { label: "Sexual Content",           color: "#f97316", tagClass: "tag-sexual"   },
+  profanity: { label: "Profanity",                color: "#f59e0b", tagClass: "tag-profanity"},
+  drugs:     { label: "Drug References",          color: "#a78bfa", tagClass: "tag-drugs"    },
+  violence:  { label: "Violence / Weapons",       color: "#dc2626", tagClass: "tag-violence" },
+  threats:   { label: "Threats",                  color: "#7f1d1d", tagClass: "tag-threats"  },
+  extremism: { label: "Extremist Content",        color: "#991b1b", tagClass: "tag-extremism"},
+  predatory: { label: "Predatory / Inappropriate",color: "#be123c", tagClass: "tag-predatory"},
+  political: { label: "Political Content",        color: "#6366f1", tagClass: "tag-political"},
+  account:   { label: "Controversial Account",   color: "#8b5cf6", tagClass: "tag-account"  },
+};
+
+// ═══════════════════════════════════════════════════════
+// DEGEN / CONTROVERSIAL ACCOUNTS
+// ═══════════════════════════════════════════════════════
+const DEGEN_USERS = new Set(["dc_draino","hodgetwins","alliebstuckey","alina_habba","sebastian_gorka","chicksonright","kayleighmcenany","saragonzalestx","charliekirk11","candaceowens","laurenboebert","republicans.genz","todayisamerica","millennial_republicans","the_typical_liberal","ragingamericans","snowflaketears","poplitics","conservativeant","davidjharrisjr","byrondonalds","realalexclark","thatpatriotmom","hasanabi","aoc","briantylercohen","glenn.11.greenwald","milano_alyssa","barackobama","theunshackled","turningpointusa","dineshdsouza","mattwalshblog","michaeljknowles","prageru","dailywire","libsoftiktok","endwokeness","gunthereagleman","clayandbuck","jackposobiec","catturd2","realcandaceo","benshapiro","donaldjtrumpjr","teamtrump","mtgreenee","tedcruz","randpaul","jdvance","nikkhaley","ron.desantis","vivafrei","ezralevant","rebelnewnetwork","truenorthcentre","realdonaldtrump","cosmicskelly","jeffrey_ballsack","looksmaxinng","v_agarthan","mell_english1","skibikanyefootjob69420","vrilyoumarryme","emperorashtar","releasethefiles1","ascendedghm","nicheandmagical","flerf_charmszs.o1","charmszs_o2","charmszs__","charmszs__o3","vril_repost_central","vrilliant_europe","edittheagenda","agarthanbrah","hyperborean.classic","spoconyszympans","truthnuker1488","save_australia1","mandela.ig","steinberg_g0y","agartha.sol","the_goyims","xallefarx","ihatethem1488","cheyboyan","europeanbynature","guyaintreal","vril_university","goymanager","rayzone_rd","churchofvril","agartha_editor","literalswan","ordinary.traveler83","nullorder","ongezelligchud","da.monkee","nzsovereignty","butter.exe__","p_perry__","bagmaster01","serbianschizo","sprendax","totallyrealname012345","senseikeedu","vril_tees","vril_goy","420wenspaz","slyf3rz","missingscreams","hannibalbarca__","atlantis_vrill","dooderplargy","assadalbashar","muscle_corgi","muscle_corgi_strikes_again","emperormartinn","crusader.martin","catholickingdom3","martin.themonarch","noddygod","commanderashtarsheranofficial","spider_man_eating_a_onion_ring","salad_bowl_of_politics","placeholderu","fumoudonge","circles_of_dyel","jizardroyale","soul_hulk19","richard_ruach","streitmacht.des.mannes","litaturot","moe1488.mp4","jonpopmemes","uncooked_bread23","no.diplomacy","prefernottoconsumeanybroccoli","thefupatrooper","zeryphyz","shoootsseeds","v4vengence","meme.spartan.301","coke4free","satirevideos69","aoe_interstellar2014","offensivememesinc","beetle_plex","n3nt_figure","clothingyouneedshop","sau_cymemes","zuzicat_","my._chemical_.suckmates","eminempopcornbucket","meme__theft","highendgarrett","sheetposto.o","staringavatar","unkn0wn5end3r","mememessiah_53","bustdowndonnie","ight_imma_head_out","awakeobserver","jfortune.1","builtbela","honeybun.scatpostz","fatgoblinmemes","yng__33","i64_hateclan","fitlit_posting","mindonai","drmissions","n.e.s.t.o.r","bsallac","sid_poops","fair_debater680","dontmesswithmahad","meme.bank6","bismarckisback2","50dollarsdaily","ogcod_clipz","erikabangers","zeus.global.official","20thelement","punished.epstein"]);
+
+const EXTREMIST_MARKERS = ["1488","vril","nazi","goy","aryan","reich","agartha","crusader.martin","churchofvril","truthnuker","ihatethem","i64_hateclan","streitmacht","moe1488","punished.epstein"];
+
+// ═══════════════════════════════════════════════════════
+// HELPERS
+// ═══════════════════════════════════════════════════════
+function escapeRegex(s) { return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'); }
+function escapeHtml(s) {
+  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+function getTermCategory(term) {
+  const t = term.toLowerCase();
+  if (SLUR_TERMS.has(t))     return 'slurs';
+  if (SEXUAL_TERMS.has(t))   return 'sexual';
+  if (DRUG_TERMS.has(t))     return 'drugs';
+  if (VIOLENCE_TERMS.has(t)) return 'violence';
+  return 'profanity';
+}
+const TERM_SEV = { slurs: 9, sexual: 7, drugs: 5, violence: 8, profanity: 4 };
+
+// ═══════════════════════════════════════════════════════
+// ANALYSIS ENGINE
+// ═══════════════════════════════════════════════════════
+function analyzeComment(comment) {
+  const text = comment.text;
+  const textLower = text.toLowerCase();
+  const flags = [];
+  const seen = new Set();
+
+  // 1. Term list
+  for (const term of FLAGGED_TERMS_LIST) {
+    const tl = term.toLowerCase();
+    if (seen.has(tl)) continue;
+    let matched = false;
+    if (/[\s0-9\-\.!@#$%^&*]/.test(term)) {
+      matched = textLower.includes(tl);
+    } else {
+      try { matched = new RegExp(`\\b${escapeRegex(tl)}\\b`, 'i').test(text); }
+      catch(e) { matched = textLower.includes(tl); }
+    }
+    if (matched) {
+      seen.add(tl);
+      const cat = getTermCategory(tl);
+      flags.push({ type: 'term', term, label: `"${term}"`, category: cat, severity: TERM_SEV[cat] || 4 });
+    }
+  }
+
+  // 2. Contextual patterns
+  for (const p of CONTEXTUAL_PATTERNS) {
+    if (p.pattern.test(text)) {
+      const key = `pat:${p.label}`;
+      if (!seen.has(key)) { seen.add(key); flags.push({ type: 'pattern', label: p.label, category: p.category, severity: p.severity }); }
+    }
+  }
+
+  // 3. Account association
+  const ownerLower = comment.mediaOwner.toLowerCase();
+  if (DEGEN_USERS.has(ownerLower)) {
+    const isExtremist = EXTREMIST_MARKERS.some(m => ownerLower.includes(m));
+    flags.push({ type: 'account', label: isExtremist ? `Extremist account (@${comment.mediaOwner})` : `Controversial account (@${comment.mediaOwner})`, category: 'account', severity: isExtremist ? 8 : 3 });
+  }
+
+  return flags;
+}
+
+function maxSev(flags) { return flags.length ? Math.max(...flags.map(f => f.severity)) : 0; }
+function sevClass(s) { return s >= 7 ? 'severity-high' : s >= 4 ? 'severity-medium' : 'severity-low'; }
+function sevLabel(s) { return s >= 7 ? { label: 'High', cls: 'risk-high' } : s >= 4 ? { label: 'Medium', cls: 'risk-medium' } : { label: 'Low', cls: 'risk-low' }; }
+
+function highlightText(text, flags) {
+  let r = escapeHtml(text);
+  for (const f of flags.filter(f => f.type === 'term')) {
+    try { r = r.replace(new RegExp(`(${escapeRegex(f.term)})`, 'gi'), '<mark class="highlight">$1</mark>'); } catch(e) {}
+  }
+  return r;
+}
+function formatDate(ts) { return ts ? new Date(ts*1000).toLocaleDateString('en-US',{year:'numeric',month:'short',day:'numeric'}) : 'Unknown'; }
+
+// ═══════════════════════════════════════════════════════
+// PARSE  –  JSON format (older Instagram exports)
+// ═══════════════════════════════════════════════════════
+function parseJsonComments(data) {
+  let arr = data;
+  if (!Array.isArray(data)) {
+    for (const k of ['post_comments','comments_media_likes','comments','data']) {
+      if (Array.isArray(data[k])) { arr = data[k]; break; }
+    }
+    if (!Array.isArray(arr)) {
+      for (const k of Object.keys(data)) { if (Array.isArray(data[k])) { arr = data[k]; break; } }
+    }
+    if (!Array.isArray(arr)) throw new Error('Could not find comment array in JSON file.');
+  }
+  const out = [];
+  for (let i = 0; i < arr.length; i++) {
+    const item = arr[i];
+    const smd = item.string_map_data || {};
+    const cv  = (smd['Comment']||smd['comment']||{}).value || '';
+    const ov  = (smd['Media Owner']||smd['media_owner']||{}).value || 'unknown';
+    const ts  = (smd['Time']||smd['time']||{}).timestamp || 0;
+    if (cv.trim()) out.push({ id: i, text: cv.trim(), mediaOwner: ov, timestamp: ts });
+  }
+  return out;
+}
+
+// ═══════════════════════════════════════════════════════
+// PARSE  –  HTML format (current Instagram exports)
+// Structure: <table> rows with td labels "Comment", "Media Owner", "Time"
+// ═══════════════════════════════════════════════════════
+function parseHtmlComments(htmlText) {
+  const doc = new DOMParser().parseFromString(htmlText, 'text/html');
+  const out = [];
+  let idCounter = 0;
+
+  for (const table of doc.querySelectorAll('table')) {
+    let comment = null, owner = 'unknown', dateStr = '';
+
+    for (const tr of table.querySelectorAll('tr')) {
+      const tds = tr.querySelectorAll('td');
+      if (!tds.length) continue;
+      const firstTd = tds[0];
+
+      // Label is the raw text node before any child elements
+      const labelNode = [...firstTd.childNodes].find(n => n.nodeType === 3);
+      const label = (labelNode ? labelNode.textContent : firstTd.textContent).trim().split('\n')[0].trim();
+
+      if (label === 'Comment') {
+        const inner = firstTd.querySelector('div div');
+        comment = inner ? inner.textContent.trim() : firstTd.textContent.replace('Comment','').trim();
+      } else if (label === 'Media Owner') {
+        const inner = firstTd.querySelector('div div');
+        owner = inner ? inner.textContent.trim() : '';
+      } else if (label === 'Time' && tds.length > 1) {
+        dateStr = tds[1].textContent.trim();
+      }
+    }
+
+    if (comment !== null && comment !== '') {
+      out.push({ id: idCounter++, text: comment, mediaOwner: owner || 'unknown', timestamp: parseDateStr(dateStr) });
+    }
+  }
+  return out;
+}
+
+function parseDateStr(str) {
+  if (!str) return 0;
+  // "Dec 15, 2025 2:31 pm" — normalize am/pm capitalization for Date constructor
+  const d = new Date(str.replace(/\b(am|pm)\b/i, m => m.toUpperCase()));
+  return isNaN(d.getTime()) ? 0 : Math.floor(d.getTime() / 1000);
+}
+
+// Legacy wrapper used by direct JSON upload path
+function parseComments(data) { return parseJsonComments(data); }
+
+// ═══════════════════════════════════════════════════════
+// RUN ANALYSIS
+// ═══════════════════════════════════════════════════════
+function runAnalysis(comments) {
+  const results = comments.map(c => { const flags = analyzeComment(c); return { ...c, flags, severity: maxSev(flags) }; });
+  const flagged  = results.filter(r => r.flags.length > 0);
+  const catCounts = {};
+  for (const c of flagged) for (const f of c.flags) catCounts[f.category] = (catCounts[f.category]||0)+1;
+  const flagRate = flagged.length / Math.max(1, comments.length);
+  const avgSev   = flagged.length ? flagged.reduce((s,c)=>s+c.severity,0)/flagged.length : 0;
+  const riskScore = Math.round(flagRate*50 + (avgSev/10)*50);
+  const acctMap = {};
+  for (const c of flagged) {
+    if (!acctMap[c.mediaOwner]) acctMap[c.mediaOwner] = { count:0, controversial: DEGEN_USERS.has(c.mediaOwner.toLowerCase()) };
+    acctMap[c.mediaOwner].count++;
+  }
+  const topAccounts = Object.entries(acctMap).sort((a,b)=>b[1].count-a[1].count).slice(0,10);
+  return { total: comments.length, flagged, catCounts, riskScore, topAccounts, allResults: results };
+}
+
+// ═══════════════════════════════════════════════════════
+// RENDER
+// ═══════════════════════════════════════════════════════
+let _catChart=null, _timeChart=null, _reportData=null, _flagged=[], _activeFilter='all';
+
+function renderResults(report, fileName) {
+  _reportData=report; _flagged=report.flagged; _activeFilter='all';
+  document.getElementById('upload-screen').style.display='none';
+  document.getElementById('results-screen').style.display='block';
+  document.getElementById('file-name-display').textContent=fileName;
+  renderStats(report); renderCharts(report); renderTopAccounts(report);
+  renderFilters(report); renderComments(_flagged);
+}
+
+function renderStats(r) {
+  const {total,flagged,riskScore}=r;
+  const rl=riskScore>=60?{label:'High Risk',cls:'risk-high'}:riskScore>=25?{label:'Medium Risk',cls:'risk-medium'}:{label:'Low Risk',cls:'risk-low'};
+  const high=flagged.filter(c=>c.severity>=7).length, med=flagged.filter(c=>c.severity>=4&&c.severity<7).length;
+  document.getElementById('stats-grid').innerHTML=`
+    <div class="stat-card"><div class="label">Total Comments</div><div class="value text-accent">${total}</div><div class="sublabel">analyzed</div></div>
+    <div class="stat-card"><div class="label">Flagged</div><div class="value ${flagged.length?'text-red':'text-green'}">${flagged.length}</div><div class="sublabel">${Math.round(flagged.length/Math.max(1,total)*100)}% of total</div></div>
+    <div class="stat-card"><div class="label">High Severity</div><div class="value text-red">${high}</div><div class="sublabel">need immediate attention</div></div>
+    <div class="stat-card"><div class="label">Medium Severity</div><div class="value text-amber">${med}</div><div class="sublabel">review recommended</div></div>
+    <div class="stat-card"><div class="label">Overall Risk</div><div class="value" style="font-size:1.4rem;margin-top:0.3rem;"><span class="risk-badge ${rl.cls}">${rl.label}</span></div><div class="sublabel">Score: ${riskScore}/100</div></div>`;
+}
+
+function renderCharts(r) {
+  if (_catChart) _catChart.destroy();
+  if (_timeChart) _timeChart.destroy();
+  const catCtx = document.getElementById('category-chart').getContext('2d');
+  const catKeys = Object.keys(r.catCounts);
+  if (catKeys.length) {
+    _catChart = new Chart(catCtx, { type:'doughnut', data:{ labels:catKeys.map(k=>CATEGORIES[k]?.label||k), datasets:[{ data:catKeys.map(k=>r.catCounts[k]), backgroundColor:catKeys.map(k=>(CATEGORIES[k]?.color||'#64748b')+'cc'), borderColor:catKeys.map(k=>CATEGORIES[k]?.color||'#64748b'), borderWidth:1 }] }, options:{ responsive:true, maintainAspectRatio:false, plugins:{ legend:{ position:'bottom', labels:{ color:'#94a3b8', font:{size:11}, padding:10, boxWidth:12 } } } } });
+  } else {
+    catCtx.canvas.parentElement.innerHTML='<div class="empty-state" style="padding:2rem"><div class="icon">✅</div><p>No flagged content</p></div>';
+  }
+  const timeCtx = document.getElementById('timeline-chart').getContext('2d');
+  const mT={}, mF={};
+  for (const c of r.allResults) {
+    if (!c.timestamp) continue;
+    const d=new Date(c.timestamp*1000);
+    const k=`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`;
+    mT[k]=(mT[k]||0)+1; if (c.flags.length) mF[k]=(mF[k]||0)+1;
+  }
+  const months=Object.keys(mT).sort();
+  const mlabels=months.map(k=>{ const[y,m]=k.split('-'); return new Date(+y,+m-1,1).toLocaleDateString('en-US',{month:'short',year:'2-digit'}); });
+  _timeChart = new Chart(timeCtx, { type:'bar', data:{ labels:mlabels, datasets:[ { label:'Flagged', data:months.map(k=>mF[k]||0), backgroundColor:'rgba(239,68,68,0.7)', borderColor:'#ef4444', borderWidth:1 }, { label:'Clean', data:months.map(k=>(mT[k]||0)-(mF[k]||0)), backgroundColor:'rgba(16,185,129,0.35)', borderColor:'#10b981', borderWidth:1 } ] }, options:{ responsive:true, maintainAspectRatio:false, scales:{ x:{stacked:true,ticks:{color:'#64748b',font:{size:10}},grid:{color:'#1e293b'}}, y:{stacked:true,ticks:{color:'#64748b'},grid:{color:'#334155'}} }, plugins:{ legend:{labels:{color:'#94a3b8',font:{size:11}}} } } });
+}
+
+function renderTopAccounts(r) {
+  const sec=document.getElementById('top-accounts-section'), list=document.getElementById('top-accounts-list');
+  if (!r.topAccounts.length) { sec.style.display='none'; return; }
+  sec.style.display='block';
+  const max=r.topAccounts[0][1].count;
+  list.innerHTML=r.topAccounts.map(([o,{count,controversial}])=>`<div class="account-row"><div class="account-name">@${escapeHtml(o)}</div>${controversial?'<span class="account-flagged-tag">Controversial</span>':''}<div class="account-bar"><div class="account-bar-fill" style="width:${Math.round(count/max*100)}%"></div></div><div class="account-count">${count} flag${count!==1?'s':''}</div></div>`).join('');
+}
+
+function renderFilters(r) {
+  const c=document.getElementById('category-filters');
+  const cats=Object.keys(r.catCounts);
+  if (!cats.length) { c.innerHTML=''; return; }
+  c.innerHTML=[`<button class="filter-btn active" data-cat="all" onclick="setFilter('all')">All (${r.flagged.length})</button>`,...cats.map(cat=>`<button class="filter-btn" data-cat="${cat}" onclick="setFilter('${cat}')">${CATEGORIES[cat]?.label||cat} (${r.catCounts[cat]})</button>`)].join('');
+}
+
+function setFilter(cat) {
+  _activeFilter=cat;
+  document.querySelectorAll('.filter-btn').forEach(b=>b.classList.toggle('active',b.dataset.cat===cat));
+  renderComments(cat==='all'?_flagged:_flagged.filter(c=>c.flags.some(f=>f.category===cat)));
+}
+
+function renderComments(comments) {
+  const container=document.getElementById('comment-list');
+  document.getElementById('flag-count-badge').textContent=`(${comments.length})`;
+  if (!comments.length) { container.innerHTML='<div class="empty-state"><div class="icon">✅</div><p>No flagged comments in this category.</p></div>'; return; }
+  const sorted=[...comments].sort((a,b)=>b.severity-a.severity);
+  container.innerHTML=sorted.map(c=>{
+    const sc=sevClass(c.severity), sl=sevLabel(c.severity);
+    const hl=highlightText(c.text,c.flags), dt=formatDate(c.timestamp);
+    const tags=c.flags.map(f=>`<span class="flag-tag ${CATEGORIES[f.category]?.tagClass||'tag-profanity'}">${escapeHtml(f.label)}</span>`).join('');
+    return `<div class="comment-card ${sc}"><div class="comment-header"><span class="comment-owner">@${escapeHtml(c.mediaOwner)}</span><span class="comment-date">📅 ${dt}</span><span class="risk-badge ${sl.cls}" style="font-size:0.72rem;padding:0.2rem 0.6rem;">${sl.label}</span></div><div class="comment-text">${hl}</div><div class="comment-flags">${tags}</div></div>`;
+  }).join('');
+}
+
+// ═══════════════════════════════════════════════════════
+// EXPORT
+// ═══════════════════════════════════════════════════════
+function exportReport() {
+  if (!_reportData) return;
+  const out={ generatedAt:new Date().toISOString(), summary:{ totalComments:_reportData.total, flaggedComments:_reportData.flagged.length, riskScore:_reportData.riskScore, categoryCounts:_reportData.catCounts }, flaggedComments:_reportData.flagged.map(c=>({ text:c.text, commentedOn:c.mediaOwner, date:formatDate(c.timestamp), severityScore:c.severity, flags:c.flags.map(f=>({label:f.label,category:f.category,severity:f.severity})) })) };
+  const blob=new Blob([JSON.stringify(out,null,2)],{type:'application/json'});
+  const url=URL.createObjectURL(blob);
+  const a=document.createElement('a'); a.href=url; a.download='scrub-report.json'; a.click();
+  URL.revokeObjectURL(url);
+}
+
+// ═══════════════════════════════════════════════════════
+// FILE HANDLING  –  ZIP + JSON
+// ═══════════════════════════════════════════════════════
+function processFile(file) {
+  if (!file) return;
+  hideError();
+  const isZip = file.name.toLowerCase().endsWith('.zip') || file.type === 'application/zip' || file.type === 'application/x-zip-compressed' || file.type === 'application/octet-stream';
+  if (isZip) processZip(file);
+  else processJson(file);
+}
+
+async function processZip(file) {
+  setLoadingMsg('Extracting ZIP…');
+  showLoading();
+  try {
+    const zip = await JSZip.loadAsync(file);
+    const allPaths = Object.keys(zip.files).filter(p => !zip.files[p].dir);
+
+    // Find all comment files — HTML (current IG format) or JSON (legacy)
+    const commentPaths = allPaths
+      .filter(p => p.toLowerCase().includes('comment') && (p.toLowerCase().endsWith('.html') || p.toLowerCase().endsWith('.json')))
+      .sort(); // handles post_comments_1, post_comments_2, …
+
+    if (!commentPaths.length) {
+      throw new Error('No comment files found in this ZIP. Make sure this is your Instagram data export.');
+    }
+
+    setLoadingMsg(`Parsing ${commentPaths.length} comment file${commentPaths.length > 1 ? 's' : ''}…`);
+    let allComments = [];
+
+    for (const path of commentPaths) {
+      const text = await zip.files[path].async('text');
+      try {
+        let batch = [];
+        if (path.toLowerCase().endsWith('.json')) {
+          batch = parseJsonComments(JSON.parse(text));
+        } else {
+          batch = parseHtmlComments(text);
+        }
+        // Re-index IDs so they don't collide across files
+        batch.forEach(c => { c.id = allComments.length + c.id; });
+        allComments = allComments.concat(batch);
+      } catch(e) {
+        console.warn('Skipped', path, e.message);
+      }
+    }
+
+    if (!allComments.length) {
+      throw new Error('Found comment files but could not extract any comments. The export may be empty or in an unexpected format.');
+    }
+
+    setLoadingMsg(`Analyzing ${allComments.length} comments…`);
+    const report = runAnalysis(allComments);
+    hideLoading();
+    renderResults(report, file.name);
+  } catch(err) {
+    hideLoading();
+    showError(err.message || 'Failed to read ZIP file.');
+  }
+}
+
+function processJson(file) {
+  setLoadingMsg('Analyzing comments…');
+  showLoading();
+  const reader = new FileReader();
+  reader.onload = e => {
+    try {
+      const data = JSON.parse(e.target.result);
+      const comments = parseComments(data);
+      if (!comments.length) { hideLoading(); showError('No comments found. Check that you uploaded the correct Instagram comments.json file.'); return; }
+      const report = runAnalysis(comments);
+      hideLoading();
+      renderResults(report, file.name);
+    } catch(err) {
+      hideLoading();
+      showError(err instanceof SyntaxError ? 'Invalid JSON file.' : (err.message || 'Failed to process file.'));
+    }
+  };
+  reader.onerror = () => { hideLoading(); showError('Failed to read file.'); };
+  reader.readAsText(file);
+}
+
+function resetApp() {
+  document.getElementById('upload-screen').style.display='flex';
+  document.getElementById('results-screen').style.display='none';
+  document.getElementById('file-input').value='';
+  _flagged=[]; _reportData=null; _activeFilter='all';
+  hideError();
+}
+
+function showError(msg) { const el=document.getElementById('error-banner'); el.textContent=msg; el.style.display='block'; }
+function hideError()    { document.getElementById('error-banner').style.display='none'; }
+function showLoading()  { document.getElementById('loading').style.display='flex'; }
+function hideLoading()  { document.getElementById('loading').style.display='none'; }
+function setLoadingMsg(msg) { document.getElementById('loading-msg').textContent=msg; }
+
+// ═══════════════════════════════════════════════════════
+// EVENTS
+// ═══════════════════════════════════════════════════════
+document.getElementById('file-input').addEventListener('change', e => { if (e.target.files[0]) processFile(e.target.files[0]); });
+const dropzone = document.getElementById('dropzone');
+dropzone.addEventListener('click', () => document.getElementById('file-input').click());
+dropzone.addEventListener('dragover', e => { e.preventDefault(); dropzone.classList.add('drag-over'); });
+dropzone.addEventListener('dragleave', () => dropzone.classList.remove('drag-over'));
+dropzone.addEventListener('drop', e => { e.preventDefault(); dropzone.classList.remove('drag-over'); const f=e.dataTransfer.files[0]; if(f) processFile(f); });
+</script>
+</body>
+</html>
